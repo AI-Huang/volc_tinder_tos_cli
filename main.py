@@ -8,8 +8,8 @@ _SRC_DIR = Path(__file__).resolve().parent / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
-from tos_demo.settings import tos_settings
-from tos_demo.storage.tos_service import TosService
+from volc_tinder_tos_cli.settings import tos_settings
+from volc_tinder_tos_cli.storage.tos_service import TosService
 
 MENU_ACTIONS = [
     ("list_buckets", "List Buckets"),
