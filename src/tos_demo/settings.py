@@ -1,3 +1,12 @@
+from pathlib import Path
+from typing import ClassVar
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
+
 class TosSettings(BaseSettings):
     """Environment-backed settings for TOS object storage."""
 
@@ -11,10 +20,11 @@ class TosSettings(BaseSettings):
     bucket_name: str = Field(default="", validation_alias="TOS_BUCKET_NAME")
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
-        env_file=ENV_FILE,
+        env_file=str(ENV_FILE),
         extra="ignore",
     )
 
 
 tos_settings = TosSettings()
+
 __all__ = ["TosSettings", "tos_settings"]

@@ -1,8 +1,15 @@
+import sys
+from pathlib import Path
+
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from prompt_toolkit.shortcuts import button_dialog, input_dialog, radiolist_dialog
 
-from services.tos_service import TosService
-from settings import TOS_ACCESS_KEY, TOS_SECRET_ACCESS_KEY, TOS_ENDPOINT, TOS_REGION
+_SRC_DIR = Path(__file__).resolve().parent / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+from tos_demo.settings import tos_settings
+from tos_demo.storage.tos_service import TosService
 
 MENU_ACTIONS = [
     ("list_buckets", "List Buckets"),
@@ -272,7 +279,10 @@ def delete_object(tos_service):
 
 def main():
     tos_service = TosService(
-        TOS_ACCESS_KEY, TOS_SECRET_ACCESS_KEY, TOS_ENDPOINT, TOS_REGION
+        tos_settings.access_key,
+        tos_settings.secret_access_key,
+        tos_settings.endpoint,
+        tos_settings.region,
     )
     handlers = {
         "list_buckets": list_buckets,
