@@ -1,3 +1,4 @@
+from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from prompt_toolkit.shortcuts import button_dialog, input_dialog, radiolist_dialog
 
 from services.tos_service import TosService
@@ -14,14 +15,46 @@ MENU_ACTIONS = [
     ("quit", "Quit"),
 ]
 
+STATUS_PAGE_LINES = 40
 
-def build_main_text(status_text):
+
+def build_main_text(status_text, status_page):
+    status_lines = (status_text or "Ready").splitlines() or ["Ready"]
+    total_pages = max(
+        1, (len(status_lines) + STATUS_PAGE_LINES - 1) // STATUS_PAGE_LINES
+    )
+    status_page = max(0, min(status_page, total_pages - 1))
+    start = status_page * STATUS_PAGE_LINES
+    end = start + STATUS_PAGE_LINES
+    visible_status_lines = status_lines[start:end]
+
     lines = ["Choose an operation"]
     lines.append("")
     lines.append("Status")
     lines.append("-" * 48)
-    lines.append(status_text or "Ready")
-    return "\n".join(lines)
+    lines.append("\n".join(visible_status_lines))
+    lines.append("")
+    lines.append(
+        f"Page {status_page + 1}/{total_pages} (shortcuts: n/PgDn next, p/PgUp prev)"
+    )
+    return "\n".join(lines), status_page
+
+
+def set_status_text(value):
+    select_action.status_text = value or "Ready"
+    select_action.status_page = 0
+
+
+def move_status_page(step):
+    status_lines = (select_action.status_text or "Ready").splitlines() or ["Ready"]
+    total_pages = max(
+        1, (len(status_lines) + STATUS_PAGE_LINES - 1) // STATUS_PAGE_LINES
+    )
+    if total_pages <= 1:
+        return
+    select_action.status_page = max(
+        0, min(select_action.status_page + step, total_pages - 1)
+    )
 
 
 def prompt_text(title, text):
@@ -34,20 +67,40 @@ def prompt_text(title, text):
 
 def select_action():
     buttons = [(label, action) for action, label in MENU_ACTIONS]
-    return button_dialog(
+    main_text, clamped_page = build_main_text(
+        select_action.status_text, select_action.status_page
+    )
+    select_action.status_page = clamped_page
+    app = button_dialog(
         title="volc-tinder-tos-cli",
-        text=build_main_text(select_action.status_text),
+        text=main_text,
         buttons=buttons,
-    ).run()
+    )
+
+    status_kb = KeyBindings()
+
+    @status_kb.add("n")
+    @status_kb.add("pagedown")
+    def _status_next(event):
+        event.app.exit(result="status_next")
+
+    @status_kb.add("p")
+    @status_kb.add("pageup")
+    def _status_prev(event):
+        event.app.exit(result="status_prev")
+
+    app.key_bindings = merge_key_bindings([app.key_bindings, status_kb])
+    return app.run()
 
 
 select_action.status_text = "Ready"
+select_action.status_page = 0
 
 
 def select_bucket(tos_service, title, text):
     buckets = tos_service.list_buckets()
     if not buckets:
-        select_action.status_text = "No buckets found"
+        set_status_text("No buckets found")
         return None
 
     values = [(bucket, bucket) for bucket in buckets]
@@ -57,7 +110,7 @@ def select_bucket(tos_service, title, text):
 def select_object(tos_service, bucket_name, title, text):
     objects = tos_service.list_objects(bucket_name)
     if not objects:
-        select_action.status_text = f"No objects in '{bucket_name}'"
+        set_status_text(f"No objects in '{bucket_name}'")
         return None
 
     values = [(obj, obj) for obj in objects]
@@ -74,7 +127,7 @@ def confirm_dangerous_action(action_label, target_label, target_value):
         ),
     ).run()
     if confirmation is None or confirmation.strip() != target_value:
-        select_action.status_text = "Operation cancelled"
+        set_status_text("Operation cancelled")
         return False
     return True
 
@@ -83,22 +136,22 @@ def list_buckets(tos_service):
     buckets = tos_service.list_buckets()
     if buckets:
         lines = [f"{index}. {bucket}" for index, bucket in enumerate(buckets, 1)]
-        select_action.status_text = "\n".join(lines)
+        set_status_text("\n".join(lines))
     else:
-        select_action.status_text = "No buckets found"
+        set_status_text("No buckets found")
 
 
 def create_bucket(tos_service):
     bucket_name = prompt_text("Create Bucket", "Enter bucket name:")
     if not bucket_name:
-        select_action.status_text = "Bucket name cannot be empty"
+        set_status_text("Bucket name cannot be empty")
         return
 
     success = tos_service.create_bucket(bucket_name)
     if success:
-        select_action.status_text = f"Bucket '{bucket_name}' created successfully"
+        set_status_text(f"Bucket '{bucket_name}' created successfully")
     else:
-        select_action.status_text = f"Failed to create bucket '{bucket_name}'"
+        set_status_text(f"Failed to create bucket '{bucket_name}'")
 
 
 def delete_bucket(tos_service):
@@ -113,9 +166,9 @@ def delete_bucket(tos_service):
 
     success = tos_service.delete_bucket(bucket_name)
     if success:
-        select_action.status_text = f"Bucket '{bucket_name}' deleted successfully"
+        set_status_text(f"Bucket '{bucket_name}' deleted successfully")
     else:
-        select_action.status_text = f"Failed to delete bucket '{bucket_name}'"
+        set_status_text(f"Failed to delete bucket '{bucket_name}'")
 
 
 def list_objects(tos_service):
@@ -127,16 +180,12 @@ def list_objects(tos_service):
 
     objects = tos_service.list_objects(bucket_name)
     if not objects:
-        select_action.status_text = f"No objects in '{bucket_name}'"
+        set_status_text(f"No objects in '{bucket_name}'")
         return
 
-    preview = objects[:20]
     lines = [f"Bucket: {bucket_name}", ""]
-    lines.extend(f"- {obj}" for obj in preview)
-    if len(objects) > len(preview):
-        lines.append("")
-        lines.append(f"... and {len(objects) - len(preview)} more")
-    select_action.status_text = "\n".join(lines)
+    lines.extend(f"- {obj}" for obj in objects)
+    set_status_text("\n".join(lines))
 
 
 def upload_object(tos_service):
@@ -149,14 +198,14 @@ def upload_object(tos_service):
     object_key = prompt_text("Upload Object", "Enter object key:")
     content = prompt_text("Upload Object", "Enter object content:")
     if not object_key or not content:
-        select_action.status_text = "Object key and content cannot be empty"
+        set_status_text("Object key and content cannot be empty")
         return
 
     success = tos_service.put_object(bucket_name, object_key, content)
     if success:
-        select_action.status_text = f"Object '{object_key}' uploaded successfully"
+        set_status_text(f"Object '{object_key}' uploaded successfully")
     else:
-        select_action.status_text = f"Failed to upload object '{object_key}'"
+        set_status_text(f"Failed to upload object '{object_key}'")
 
 
 def download_object(tos_service):
@@ -175,12 +224,12 @@ def download_object(tos_service):
     if not object_key:
         if select_action.status_text.startswith("No objects in"):
             return
-        select_action.status_text = "Download cancelled"
+        set_status_text("Download cancelled")
         return
 
     content = tos_service.get_object(bucket_name, object_key)
     if content is None:
-        select_action.status_text = f"Failed to get object '{object_key}'"
+        set_status_text(f"Failed to get object '{object_key}'")
         return
 
     if isinstance(content, bytes):
@@ -189,7 +238,7 @@ def download_object(tos_service):
         except UnicodeDecodeError:
             content = content.decode("utf-8", errors="replace")
 
-    select_action.status_text = f"Bucket: {bucket_name}\nKey: {object_key}\n\n{content}"
+    set_status_text(f"Bucket: {bucket_name}\nKey: {object_key}\n\n{content}")
 
 
 def delete_object(tos_service):
@@ -208,7 +257,7 @@ def delete_object(tos_service):
     if not object_key:
         if select_action.status_text.startswith("No objects in"):
             return
-        select_action.status_text = "Delete cancelled"
+        set_status_text("Delete cancelled")
         return
 
     if not confirm_dangerous_action("delete object", "the object key", object_key):
@@ -216,9 +265,9 @@ def delete_object(tos_service):
 
     success = tos_service.delete_object(bucket_name, object_key)
     if success:
-        select_action.status_text = f"Object '{object_key}' deleted successfully"
+        set_status_text(f"Object '{object_key}' deleted successfully")
     else:
-        select_action.status_text = f"Failed to delete object '{object_key}'"
+        set_status_text(f"Failed to delete object '{object_key}'")
 
 
 def main():
@@ -239,6 +288,12 @@ def main():
         action = select_action()
         if action in (None, "quit"):
             break
+        if action == "status_prev":
+            move_status_page(-1)
+            continue
+        if action == "status_next":
+            move_status_page(1)
+            continue
         handlers[action](tos_service)
 
 
